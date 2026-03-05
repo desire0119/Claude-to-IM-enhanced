@@ -90,14 +90,24 @@ if [ "$CTI_RUNTIME" = "codex" ] || [ "$CTI_RUNTIME" = "auto" ]; then
     fi
   fi
 
-  # Check OPENAI_API_KEY
-  if [ -n "${OPENAI_API_KEY:-}" ]; then
-    check "OPENAI_API_KEY is set" 0
+  # Check Codex auth: any of CTI_CODEX_API_KEY / CODEX_API_KEY / OPENAI_API_KEY,
+  # or `codex auth status` showing logged-in (interactive login).
+  CODEX_AUTH=1
+  if [ -n "${CTI_CODEX_API_KEY:-}" ] || [ -n "${CODEX_API_KEY:-}" ] || [ -n "${OPENAI_API_KEY:-}" ]; then
+    CODEX_AUTH=0
+  elif command -v codex &>/dev/null; then
+    CODEX_AUTH_OUT=$(codex auth status 2>&1 || true)
+    if echo "$CODEX_AUTH_OUT" | grep -qiE 'logged.in|authenticated'; then
+      CODEX_AUTH=0
+    fi
+  fi
+  if [ "$CODEX_AUTH" = "0" ]; then
+    check "Codex auth available (API key or login)" 0
   else
     if [ "$CTI_RUNTIME" = "codex" ]; then
-      check "OPENAI_API_KEY is set (not found — required for Codex)" 1
+      check "Codex auth available (set OPENAI_API_KEY or run 'codex auth login')" 1
     else
-      check "OPENAI_API_KEY is set (not found — needed only for Codex fallback)" 0
+      check "Codex auth available (not found — needed only for Codex fallback)" 0
     fi
   fi
 fi

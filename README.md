@@ -34,7 +34,7 @@ Claude Code / Codex → reads/writes your codebase
 
 - **Node.js >= 20**
 - **Claude Code CLI** (for `CTI_RUNTIME=claude` or `auto`) — installed and authenticated (`claude` command available)
-- **Codex CLI + OPENAI_API_KEY** (for `CTI_RUNTIME=codex` or `auto`) — `npm install -g @openai/codex` and set `OPENAI_API_KEY`
+- **Codex CLI** (for `CTI_RUNTIME=codex` or `auto`) — `npm install -g @openai/codex`. Auth: run `codex auth login`, or set `OPENAI_API_KEY` (optional, for API mode)
 
 ## Installation
 

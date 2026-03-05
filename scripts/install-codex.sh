@@ -44,7 +44,7 @@ else
 fi
 
 # Ensure dependencies (need devDependencies for build step)
-if [ ! -d "$TARGET_DIR/node_modules" ]; then
+if [ ! -d "$TARGET_DIR/node_modules" ] || [ ! -d "$TARGET_DIR/node_modules/@openai/codex-sdk" ]; then
   echo "Installing dependencies..."
   (cd "$TARGET_DIR" && npm install)
 fi

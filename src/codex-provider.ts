@@ -10,9 +10,22 @@
  * error if it is not available.
  */
 
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import type { LLMProvider, StreamChatParams } from 'claude-to-im/src/lib/bridge/host.js';
 import type { PendingPermissions } from './permission-gateway.js';
 import { sseEvent } from './sse-utils.js';
+
+/** MIME → file extension for temp image files. */
+const MIME_EXT: Record<string, string> = {
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/jpg': '.jpg',
+  'image/gif': '.gif',
+  'image/webp': '.webp',
+};
 
 // All SDK types kept as `any` because @openai/codex-sdk is optional.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -35,6 +48,24 @@ function toApprovalPolicy(permissionMode?: string): string {
     case 'default': return 'on-request';
     default: return 'on-request';
   }
+}
+
+/** Whether to forward bridge model to Codex CLI. Default: false (use Codex current/default model). */
+function shouldPassModelToCodex(): boolean {
+  return process.env.CTI_CODEX_PASS_MODEL === 'true';
+}
+
+function looksLikeClaudeModel(model?: string): boolean {
+  return !!model && /^claude[-_]/i.test(model);
+}
+
+function shouldRetryFreshThread(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes('resuming session with different model') ||
+    lower.includes('no such session') ||
+    (lower.includes('resume') && lower.includes('session'))
+  );
 }
 
 export class CodexProvider implements LLMProvider {
@@ -63,8 +94,18 @@ export class CodexProvider implements LLMProvider {
       );
     }
 
+    // Resolve API key: CTI_CODEX_API_KEY > CODEX_API_KEY > OPENAI_API_KEY > (login auth)
+    const apiKey = process.env.CTI_CODEX_API_KEY
+      || process.env.CODEX_API_KEY
+      || process.env.OPENAI_API_KEY
+      || undefined;
+    const baseUrl = process.env.CTI_CODEX_BASE_URL || undefined;
+
     const CodexClass = this.sdk.Codex;
-    this.codex = new CodexClass({});
+    this.codex = new CodexClass({
+      ...(apiKey ? { apiKey } : {}),
+      ...(baseUrl ? { baseUrl } : {}),
+    });
 
     return { sdk: this.sdk, codex: this.codex };
   }
@@ -75,95 +116,137 @@ export class CodexProvider implements LLMProvider {
     return new ReadableStream<string>({
       start(controller) {
         (async () => {
+          const tempFiles: string[] = [];
           try {
             const { codex } = await self.ensureSDK();
 
             // Resolve or create thread
-            const savedThreadId = params.sdkSessionId
+            let savedThreadId = params.sdkSessionId
               ? self.threadIds.get(params.sessionId) || params.sdkSessionId
               : undefined;
 
+            // Cross-runtime migration safety:
+            // when a persisted Claude-model session leaks into Codex runtime,
+            // resuming it can fail immediately with model/session mismatch.
+            if (savedThreadId && looksLikeClaudeModel(params.model)) {
+              console.warn('[codex-provider] Ignoring stale Claude-like sdkSessionId in Codex runtime; starting fresh thread');
+              savedThreadId = undefined;
+            }
+
             const approvalPolicy = toApprovalPolicy(params.permissionMode);
+            const passModel = shouldPassModelToCodex();
 
             const threadOptions: Record<string, unknown> = {
-              ...(params.model ? { model: params.model } : {}),
+              ...(passModel && params.model ? { model: params.model } : {}),
               ...(params.workingDirectory ? { workingDirectory: params.workingDirectory } : {}),
               approvalPolicy,
             };
 
-            let thread: ThreadInstance;
-            if (savedThreadId) {
-              try {
-                thread = codex.resumeThread(savedThreadId, threadOptions);
-              } catch {
+            // Build input: Codex SDK UserInput supports { type: "text" } and
+            // { type: "local_image", path: string }. We write base64 data to
+            // temp files so the SDK can read them as local images.
+            const imageFiles = params.files?.filter(
+              f => f.type.startsWith('image/')
+            ) ?? [];
+
+            let input: string | Array<Record<string, string>>;
+            if (imageFiles.length > 0) {
+              const parts: Array<Record<string, string>> = [
+                { type: 'text', text: params.prompt },
+              ];
+              for (const file of imageFiles) {
+                const ext = MIME_EXT[file.type] || '.png';
+                const tmpPath = path.join(os.tmpdir(), `cti-img-${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+                fs.writeFileSync(tmpPath, Buffer.from(file.data, 'base64'));
+                tempFiles.push(tmpPath);
+                parts.push({ type: 'local_image', path: tmpPath });
+              }
+              input = parts;
+            } else {
+              input = params.prompt;
+            }
+
+            let retryFresh = false;
+
+            while (true) {
+              let thread: ThreadInstance;
+              if (savedThreadId) {
+                try {
+                  thread = codex.resumeThread(savedThreadId, threadOptions);
+                } catch {
+                  thread = codex.startThread(threadOptions);
+                }
+              } else {
                 thread = codex.startThread(threadOptions);
               }
-            } else {
-              thread = codex.startThread(threadOptions);
-            }
 
-            // Codex SDK doesn't support multi-modal input — if images are
-            // attached, prepend a note so the user knows they won't be seen.
-            let prompt = params.prompt;
-            const imageCount = params.files?.filter(
-              f => f.type.startsWith('image/')
-            )?.length ?? 0;
-            if (imageCount > 0) {
-              prompt = `[Note: ${imageCount} image(s) were attached but Codex does not support image input. Only the text portion is processed.]\n\n${prompt}`;
-            }
+              let sawAnyEvent = false;
+              try {
+                const { events } = await thread.runStreamed(input);
 
-            const { events } = await thread.runStreamed(prompt);
+                for await (const event of events) {
+                  sawAnyEvent = true;
+                  if (params.abortController?.signal.aborted) {
+                    break;
+                  }
 
-            for await (const event of events) {
-              if (params.abortController?.signal.aborted) {
+                  switch (event.type) {
+                    case 'thread.started': {
+                      const threadId = event.thread_id as string;
+                      self.threadIds.set(params.sessionId, threadId);
+
+                      controller.enqueue(sseEvent('status', {
+                        session_id: threadId,
+                      }));
+                      break;
+                    }
+
+                    case 'item.completed': {
+                      const item = event.item as Record<string, unknown>;
+                      self.handleCompletedItem(controller, item);
+                      break;
+                    }
+
+                    case 'turn.completed': {
+                      const usage = event.usage as Record<string, unknown> | undefined;
+                      const threadId = self.threadIds.get(params.sessionId);
+
+                      controller.enqueue(sseEvent('result', {
+                        usage: usage ? {
+                          input_tokens: usage.input_tokens ?? 0,
+                          output_tokens: usage.output_tokens ?? 0,
+                          cache_read_input_tokens: usage.cached_input_tokens ?? 0,
+                        } : undefined,
+                        ...(threadId ? { session_id: threadId } : {}),
+                      }));
+                      break;
+                    }
+
+                    case 'turn.failed': {
+                      const error = (event as { message?: string }).message;
+                      controller.enqueue(sseEvent('error', error || 'Turn failed'));
+                      break;
+                    }
+
+                    case 'error': {
+                      const error = (event as { message?: string }).message;
+                      controller.enqueue(sseEvent('error', error || 'Thread error'));
+                      break;
+                    }
+
+                    // item.started, item.updated, turn.started — no action needed
+                  }
+                }
                 break;
-              }
-
-              switch (event.type) {
-                case 'thread.started': {
-                  const threadId = event.thread_id as string;
-                  self.threadIds.set(params.sessionId, threadId);
-
-                  controller.enqueue(sseEvent('status', {
-                    session_id: threadId,
-                  }));
-                  break;
+              } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                if (savedThreadId && !retryFresh && !sawAnyEvent && shouldRetryFreshThread(message)) {
+                  console.warn('[codex-provider] Resume failed, retrying with a fresh thread:', message);
+                  savedThreadId = undefined;
+                  retryFresh = true;
+                  continue;
                 }
-
-                case 'item.completed': {
-                  const item = event.item as Record<string, unknown>;
-                  self.handleCompletedItem(controller, item);
-                  break;
-                }
-
-                case 'turn.completed': {
-                  const usage = event.usage as Record<string, unknown> | undefined;
-                  const threadId = self.threadIds.get(params.sessionId);
-
-                  controller.enqueue(sseEvent('result', {
-                    usage: usage ? {
-                      input_tokens: usage.input_tokens ?? 0,
-                      output_tokens: usage.output_tokens ?? 0,
-                      cache_read_input_tokens: usage.cached_input_tokens ?? 0,
-                    } : undefined,
-                    ...(threadId ? { session_id: threadId } : {}),
-                  }));
-                  break;
-                }
-
-                case 'turn.failed': {
-                  const error = (event as { error?: string }).error;
-                  controller.enqueue(sseEvent('error', error || 'Turn failed'));
-                  break;
-                }
-
-                case 'error': {
-                  const error = (event as { error?: string }).error;
-                  controller.enqueue(sseEvent('error', error || 'Thread error'));
-                  break;
-                }
-
-                // item.started, item.updated, turn.started — no action needed
+                throw err;
               }
             }
 
@@ -176,6 +259,11 @@ export class CodexProvider implements LLMProvider {
               controller.close();
             } catch {
               // Controller already closed
+            }
+          } finally {
+            // Clean up temp image files
+            for (const tmp of tempFiles) {
+              try { fs.unlinkSync(tmp); } catch { /* ignore */ }
             }
           }
         })();
@@ -223,7 +311,7 @@ export class CodexProvider implements LLMProvider {
         break;
       }
 
-      case 'fileChange': {
+      case 'file_change': {
         const toolId = (item.id as string) || `tool-${Date.now()}`;
         const changes = item.changes as Array<{ path: string; kind: string }> || [];
         const summary = changes.map(c => `${c.kind}: ${c.path}`).join('\n');
@@ -242,13 +330,16 @@ export class CodexProvider implements LLMProvider {
         break;
       }
 
-      case 'mcpToolCall': {
+      case 'mcp_tool_call': {
         const toolId = (item.id as string) || `tool-${Date.now()}`;
         const server = item.server as string || '';
         const tool = item.tool as string || '';
         const args = item.arguments as unknown;
-        const result = item.result as { output?: string } | undefined;
+        const result = item.result as { content?: unknown; structured_content?: unknown } | undefined;
         const error = item.error as { message?: string } | undefined;
+
+        const resultContent = result?.content ?? result?.structured_content;
+        const resultText = typeof resultContent === 'string' ? resultContent : (resultContent ? JSON.stringify(resultContent) : undefined);
 
         controller.enqueue(sseEvent('tool_use', {
           id: toolId,
@@ -258,7 +349,7 @@ export class CodexProvider implements LLMProvider {
 
         controller.enqueue(sseEvent('tool_result', {
           tool_use_id: toolId,
-          content: error?.message || result?.output || 'Done',
+          content: error?.message || resultText || 'Done',
           is_error: !!error,
         }));
         break;

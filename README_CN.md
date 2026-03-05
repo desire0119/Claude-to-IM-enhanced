@@ -34,7 +34,7 @@ Claude Code / Codex → 读写你的代码库
 
 - **Node.js >= 20**
 - **Claude Code CLI**（`CTI_RUNTIME=claude` 或 `auto` 时需要）— 已安装并完成认证（`claude` 命令可用）
-- **Codex CLI + OPENAI_API_KEY**（`CTI_RUNTIME=codex` 或 `auto` 时需要）— `npm install -g @openai/codex` 并设置 `OPENAI_API_KEY`
+- **Codex CLI**（`CTI_RUNTIME=codex` 或 `auto` 时需要）— `npm install -g @openai/codex`。鉴权：运行 `codex auth login`，或设置 `OPENAI_API_KEY`（可选，API 模式）
 
 ## 安装
 

@@ -78,14 +78,39 @@ case "${1:-help}" in
       exit 1
     fi
     clean_env
-    nohup node "$SKILL_DIR/dist/daemon.mjs" >> "$LOG_FILE" 2>&1 &
+    # Start daemon in a new session when possible so Ctrl-C / SIGINT from the
+    # caller shell doesn't accidentally terminate the background bridge process.
+    if command -v setsid >/dev/null 2>&1; then
+      setsid node "$SKILL_DIR/dist/daemon.mjs" >> "$LOG_FILE" 2>&1 < /dev/null &
+    else
+      nohup node "$SKILL_DIR/dist/daemon.mjs" >> "$LOG_FILE" 2>&1 < /dev/null &
+    fi
     echo $! > "$PID_FILE"
     sleep 2
-    if kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+    # Verify: PID alive AND status.json says running=true
+    PID_OK=false
+    STATUS_OK=false
+    kill -0 "$(cat "$PID_FILE")" 2>/dev/null && PID_OK=true
+    if [ -f "$STATUS_FILE" ] && grep -q '"running"[[:space:]]*:[[:space:]]*true' "$STATUS_FILE" 2>/dev/null; then
+      STATUS_OK=true
+    fi
+    if [ "$PID_OK" = "true" ] && [ "$STATUS_OK" = "true" ]; then
       echo "Bridge started (PID: $(cat "$PID_FILE"))"
       cat "$STATUS_FILE" 2>/dev/null
     else
       echo "Failed to start bridge."
+      if [ "$PID_OK" = "false" ]; then
+        echo "  Process exited immediately."
+      elif [ "$STATUS_OK" = "false" ]; then
+        echo "  Process running but status.json not reporting running=true."
+      fi
+      # Show lastExitReason if available
+      if [ -f "$STATUS_FILE" ]; then
+        LAST_REASON=$(grep -o '"lastExitReason"[[:space:]]*:[[:space:]]*"[^"]*"' "$STATUS_FILE" 2>/dev/null | head -1 | sed 's/.*: *"//;s/"$//')
+        if [ -n "$LAST_REASON" ]; then
+          echo "  Last exit reason: $LAST_REASON"
+        fi
+      fi
       echo ""
       echo "Recent logs:"
       tail -20 "$LOG_FILE"
@@ -120,6 +145,11 @@ case "${1:-help}" in
     else
       echo "Bridge is not running"
       [ -f "$PID_FILE" ] && rm -f "$PID_FILE"
+      # Show last exit reason if available
+      if [ -f "$STATUS_FILE" ]; then
+        LAST_REASON=$(grep -o '"lastExitReason"[[:space:]]*:[[:space:]]*"[^"]*"' "$STATUS_FILE" 2>/dev/null | head -1 | sed 's/.*: *"//;s/"$//')
+        [ -n "$LAST_REASON" ] && echo "Last exit reason: $LAST_REASON"
+      fi
     fi
     ;;
   logs)

@@ -64,11 +64,11 @@ export function buildSubprocessEnv(): Record<string, string> {
       }
     }
 
-    // In codex/auto mode, pass through OPENAI_* env vars
+    // In codex/auto mode, pass through OPENAI_* / CODEX_* env vars
     const runtime = process.env.CTI_RUNTIME || 'claude';
     if (runtime === 'codex' || runtime === 'auto') {
       for (const [k, v] of Object.entries(process.env)) {
-        if (v !== undefined && k.startsWith('OPENAI_')) out[k] = v;
+        if (v !== undefined && (k.startsWith('OPENAI_') || k.startsWith('CODEX_'))) out[k] = v;
       }
     }
   }

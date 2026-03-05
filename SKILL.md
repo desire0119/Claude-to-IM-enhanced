@@ -71,7 +71,7 @@ For each enabled channel, read `SKILL_DIR/references/setup-guides.md` and presen
 Ask for runtime, default working directory, model, and mode:
 - **Runtime**: `claude` (default), `codex`, `auto`
   - `claude` — uses Claude Code CLI + Claude Agent SDK (requires `claude` CLI installed)
-  - `codex` — uses OpenAI Codex SDK (requires `codex` CLI + `OPENAI_API_KEY`)
+  - `codex` — uses OpenAI Codex SDK (requires `codex` CLI; auth via `codex auth login` or `OPENAI_API_KEY`)
   - `auto` — tries Claude first, falls back to Codex if Claude CLI not found
 - **Working Directory**: default `$CWD`
 - **Model**: When runtime is `claude` or `auto`: `claude-sonnet-4-20250514` (default), `claude-opus-4-6`, `claude-haiku-4-5-20251001`. When runtime is `codex`: user can specify any model supported by their Codex setup.

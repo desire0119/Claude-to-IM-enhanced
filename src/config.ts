@@ -73,7 +73,7 @@ export function loadConfig(): Config {
     enabledChannels: splitCsv(env.get("CTI_ENABLED_CHANNELS")) ?? [],
     defaultWorkDir: env.get("CTI_DEFAULT_WORKDIR") || process.cwd(),
     defaultModel:
-      env.get("CTI_DEFAULT_MODEL") || "claude-sonnet-4-20250514",
+      env.get("CTI_DEFAULT_MODEL") || (runtime === 'codex' ? 'o4-mini' : 'claude-sonnet-4-20250514'),
     defaultMode: env.get("CTI_DEFAULT_MODE") || "code",
     tgBotToken: env.get("CTI_TG_BOT_TOKEN") || undefined,
     tgChatId: env.get("CTI_TG_CHAT_ID") || undefined,
