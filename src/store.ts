@@ -261,6 +261,10 @@ export class JsonFileStore implements BridgeStore {
     return this.sessions.get(id) ?? null;
   }
 
+  listSessions(): BridgeSession[] {
+    return Array.from(this.sessions.values());
+  }
+
   createSession(
     _name: string,
     model: string,
@@ -273,6 +277,7 @@ export class JsonFileStore implements BridgeStore {
       working_directory: cwd || this.settings.get('bridge_default_work_dir') || process.cwd(),
       model,
       system_prompt: systemPrompt,
+      created_at: now(),
     };
     this.sessions.set(session.id, session);
     this.persistSessions();
