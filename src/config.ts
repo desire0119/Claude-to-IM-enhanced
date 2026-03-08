@@ -186,6 +186,7 @@ export function configToSettings(config: Config): Map<string, string> {
   if (config.tgAllowedUsers)
     m.set("telegram_bridge_allowed_users", config.tgAllowedUsers.join(","));
   if (config.tgChatId) m.set("telegram_chat_id", config.tgChatId);
+  m.set("bridge_telegram_stream_enabled", "false");
 
   // ── Discord ──
   // Upstream keys: bridge_discord_bot_token, bridge_discord_enabled,

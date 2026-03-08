@@ -1,6 +1,10 @@
-# Claude-to-IM Skill
+# Claude-to-IM Enhanced
 
 Bridge Claude Code / Codex to IM platforms — chat with AI coding agents from Telegram, Discord, Feishu/Lark, or QQ.
+
+**Enhanced version** with intelligent session title generation and session management features.
+
+Based on [op7418/Claude-to-IM-skill](https://github.com/op7418/Claude-to-IM-skill)
 
 [中文文档](README_CN.md)
 
@@ -22,6 +26,21 @@ Claude Code / Codex → reads/writes your codebase
 
 ## Features
 
+### Enhanced Features (This Fork)
+
+- **🎯 Intelligent Session Titles** — Auto-generate meaningful Chinese titles for conversations
+  - Local rules for simple file operations (e.g., "修改 config.ts")
+  - LLM-powered title generation for complex discussions
+  - No more UUID codes — titles are human-readable
+
+- **📋 Session List & Switching** — Manage multiple conversations easily
+  - View recent 10 sessions with `/sessions` command
+  - Quick switch between conversations with `/bind <session_id>`
+  - Last message preview when switching sessions
+  - Transform single-thread chat into multi-session management
+
+### Original Features
+
 - **Four IM platforms** — Telegram, Discord, Feishu/Lark, QQ — enable any combination
 - **Interactive setup** — guided wizard collects tokens with step-by-step instructions
 - **Permission control** — tool calls require explicit approval via inline buttons (Telegram/Discord) or text `/perm` commands (Feishu/QQ)
@@ -41,13 +60,13 @@ Claude Code / Codex → reads/writes your codebase
 ### npx skills (recommended)
 
 ```bash
-npx skills add op7418/Claude-to-IM-skill
+npx skills add desire0119/claude-to-im-enhanced
 ```
 
 ### Git clone
 
 ```bash
-git clone https://github.com/op7418/Claude-to-IM-skill.git ~/.claude/skills/claude-to-im
+git clone https://github.com/desire0119/claude-to-im-enhanced.git ~/.claude/skills/claude-to-im
 ```
 
 Clones the repo directly into your personal skills directory. Claude Code discovers it automatically.
@@ -253,3 +272,7 @@ npm run build      # Build bundle
 ## License
 
 [MIT](LICENSE)
+
+## Credits
+
+Thanks to [op7418](https://github.com/op7418) for creating the original [Claude-to-IM-skill](https://github.com/op7418/Claude-to-IM-skill) project.

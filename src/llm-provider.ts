@@ -182,6 +182,94 @@ export class SDKLLMProvider implements LLMProvider {
     this.autoApprove = autoApprove;
   }
 
+  async generateTitle(messages: Array<{ role: 'user' | 'assistant'; content: string }>): Promise<string | null> {
+    if (messages.length === 0) return null;
+
+    try {
+      const userMessages = messages.filter(m => m.role === 'user');
+      if (userMessages.length === 0) return null;
+
+      const firstMsg = userMessages[0].content.trim();
+      console.log('[generateTitle] 收到消息:', JSON.stringify(messages.slice(0, 2)));
+      console.log('[generateTitle] 第一句用户消息:', firstMsg);
+
+      // 只在极简单场景用本地规则：单个文件操作且消息很短
+      const simpleFilePattern = /^(修改|创建|添加|删除|查看|打开|编辑)\s*([a-zA-Z0-9_-]+\.(js|ts|py|java|go|rs|cpp|c|h|json|yaml|yml|md|txt|css|html|vue|jsx|tsx))$/i;
+      const simpleMatch = firstMsg.match(simpleFilePattern);
+      if (simpleMatch && firstMsg.length < 30) {
+        const title = `${simpleMatch[1]}${simpleMatch[2]}`;
+        console.log('[generateTitle] 使用本地规则生成:', title);
+        return title;
+      }
+
+      // 其他所有情况都用 LLM 生成，让它理解对话真正意图
+      console.log('[generateTitle] 调用 LLM 生成标题...');
+      const llmTitle = await this.generateTitleWithLLM(messages);
+      console.log('[generateTitle] LLM 生成结果:', llmTitle);
+      return llmTitle;
+    } catch (err) {
+      console.error('[llm-provider] title generation error:', err instanceof Error ? err.stack || err.message : err);
+      return null;
+    }
+  }
+
+  private async generateTitleWithLLM(messages: Array<{ role: 'user' | 'assistant'; content: string }>): Promise<string | null> {
+    const cleanEnv = buildSubprocessEnv();
+    const cliPath = this.cliPath;
+    const prompt = [
+      '根据下面开头几轮对话生成一个中文会话标题。',
+      '要求：',
+      '1. 不超过15个字',
+      '2. 必须具体，体现任务内容',
+      '3. 不要输出”你好””测试””新对话”这种空标题',
+      '4. 只输出标题本身，不要解释',
+      '',
+      ...messages.map((m) => `${m.role === 'user' ? '用户' : '助手'}：${m.content}`),
+    ].join('\n');
+
+    console.log('[generateTitleWithLLM] prompt:', prompt.slice(0, 200));
+
+    const queryOptions: Record<string, unknown> = {
+      model: process.env.ANTHROPIC_MODEL || undefined,
+      permissionMode: 'plan',
+      maxTurns: 1,
+      env: cleanEnv,
+    };
+    if (cliPath) {
+      queryOptions.pathToClaudeCodeExecutable = cliPath;
+    }
+
+    let text = '';
+    let eventCount = 0;
+    const q = query({
+      prompt,
+      options: queryOptions as Parameters<typeof query>[0]['options'],
+    });
+
+    for await (const msg of q) {
+      eventCount++;
+      console.log('[generateTitleWithLLM] 事件类型:', msg.type);
+      console.log('[generateTitleWithLLM] 事件内容:', JSON.stringify(msg, null, 2).slice(0, 500));
+
+      // 处理不同类型的事件
+      if (msg.type === 'stream_event' && msg.event.type === 'content_block_delta' && msg.event.delta.type === 'text_delta') {
+        text += msg.event.delta.text;
+      } else if (msg.type === 'assistant' && typeof msg.text === 'string') {
+        // 处理 assistant 类型事件
+        text += msg.text;
+      } else if (msg.type === 'result' && msg.output && typeof msg.output === 'string') {
+        // 处理 result 类型事件
+        text += msg.output;
+      }
+    }
+
+    console.log('[generateTitleWithLLM] 总共收到', eventCount, '个事件，提取文本:', text);
+
+    const title = text.replace(/\s+/g, ' ').trim().replace(/^['”「『]|['”」』]$/g, '');
+    if (!title) return null;
+    return title.length > 15 ? title.slice(0, 15) : title;
+  }
+
   streamChat(params: StreamChatParams): ReadableStream<string> {
     const pendingPerms = this.pendingPerms;
     const cliPath = this.cliPath;

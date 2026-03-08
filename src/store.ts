@@ -210,9 +210,12 @@ export class JsonFileStore implements BridgeStore {
     const key = `${data.channelType}:${data.chatId}`;
     const existing = this.bindings.get(key);
     if (existing) {
+      const sessionChanged = existing.codepilotSessionId !== data.codepilotSessionId;
+      const targetSession = this.sessions.get(data.codepilotSessionId);
       const updated: ChannelBinding = {
         ...existing,
         codepilotSessionId: data.codepilotSessionId,
+        sdkSessionId: sessionChanged ? String(targetSession?.sdk_session_id || '') : existing.sdkSessionId,
         workingDirectory: data.workingDirectory,
         model: data.model,
         updatedAt: now(),
@@ -276,12 +279,21 @@ export class JsonFileStore implements BridgeStore {
       id: uuid(),
       working_directory: cwd || this.settings.get('bridge_default_work_dir') || process.cwd(),
       model,
+      title: _name,
       system_prompt: systemPrompt,
       created_at: now(),
     };
     this.sessions.set(session.id, session);
     this.persistSessions();
     return session;
+  }
+
+  updateSessionTitle(sessionId: string, title: string): void {
+    const s = this.sessions.get(sessionId);
+    if (s) {
+      s.title = title;
+      this.persistSessions();
+    }
   }
 
   updateSessionProviderId(sessionId: string, providerId: string): void {
