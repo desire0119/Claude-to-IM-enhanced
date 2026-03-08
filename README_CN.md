@@ -1,6 +1,10 @@
-# Claude-to-IM Skill
+# Claude-to-IM Enhanced（增强版）
 
 将 Claude Code / Codex 桥接到 IM 平台 —— 在 Telegram、Discord、飞书或 QQ 中与 AI 编程代理对话。
+
+**增强版本**，新增智能会话标题生成和会话管理功能。
+
+基于 [op7418/Claude-to-IM-skill](https://github.com/op7418/Claude-to-IM-skill)
 
 [English](README.md)
 
@@ -22,6 +26,21 @@ Claude Code / Codex → 读写你的代码库
 
 ## 功能特点
 
+### 增强功能（本分支新增）
+
+- **🎯 智能会话标题** — 自动为对话生成有意义的中文标题
+  - 本地规则识别简单文件操作（如"修改 config.ts"）
+  - LLM 智能理解复杂对话意图
+  - 告别 UUID 编码，标题一目了然
+
+- **📋 会话列表与切换** — 轻松管理多个对话
+  - 使用 `/sessions` 命令查看最近 10 个会话
+  - 使用 `/bind <session_id>` 快速切换对话
+  - 切换时显示最后一条消息预览
+  - 从单线程聊天升级为多会话管理
+
+### 原版功能
+
 - **四大 IM 平台** — Telegram、Discord、飞书、QQ，可任意组合启用
 - **交互式配置** — 引导式向导逐步收集 token，附带详细获取说明
 - **权限控制** — 工具调用需要在聊天中通过内联按钮（Telegram/Discord）或文本 `/perm` 命令（飞书/QQ）明确批准
@@ -41,13 +60,13 @@ Claude Code / Codex → 读写你的代码库
 ### npx skills（推荐）
 
 ```bash
-npx skills add op7418/Claude-to-IM-skill
+npx skills add desire0119/claude-to-im-enhanced
 ```
 
 ### Git 克隆
 
 ```bash
-git clone https://github.com/op7418/Claude-to-IM-skill.git ~/.claude/skills/claude-to-im
+git clone https://github.com/desire0119/claude-to-im-enhanced.git ~/.claude/skills/claude-to-im
 ```
 
 将仓库直接克隆到个人 Skills 目录，Claude Code 会自动发现。
@@ -253,3 +272,7 @@ npm run build      # 构建打包
 ## 许可
 
 [MIT](LICENSE)
+
+## 致谢
+
+感谢 [op7418](https://github.com/op7418) 创建了原始的 [Claude-to-IM-skill](https://github.com/op7418/Claude-to-IM-skill) 项目。
